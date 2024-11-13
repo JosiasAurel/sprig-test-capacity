@@ -79,12 +79,6 @@ function buildRoomWithClients(roomName = "oDWL6LS54Dt1rpFdftyW", NUM_CLIENTS, up
     // terminate parent process
     process.exit(1);
   });
-
-  // setInterval(() => {
-  //   console.clear();
-  //   console.log(updates);
-  // }, 1000);
-
 }
 
 function main() {
