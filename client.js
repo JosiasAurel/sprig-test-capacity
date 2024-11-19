@@ -7,8 +7,11 @@ const app = express();
 app.use(express.json());
 
 const SIGNALING_SERVERS = ["wss://yjs-signaling-server-5fb6d64b3314.herokuapp.com/"]
+const clientID = process.argv[2];
+const roomName = process.argv[3];
 
 const buildLogger = id => thing => console.log(id, thing);
+
 
 // @param updates {Array<number>} - used to indicate the number of updates each client has received since the start of the program
 function createClient(id = 0, roomName) {
@@ -25,17 +28,35 @@ function createClient(id = 0, roomName) {
         const updateText = ydoc.getText("codemirror");
         Y.applyUpdate(ydoc, update);
 
-        process.send({ id })
+        const now = new Date().getTime();
+
+        process.send({ id, roomName, now });
         // console.log("got update")
     });
 
+    // TODO: Need to be able to chose what client sends what
     // send updates at random indices every 2.5 seconds
-    setInterval(() => {
-        ydoc.getText("codemirror").insert(Math.floor(Math.random(), 10), "this change came from the headless client");
-    }, 2500);
+    process.on("message", message => {
+        if (message.action === "message") {
+            ydoc.getText("codemirror").insert(Math.floor(Math.random(), 10), "this change came from the headless client");
+        }
+    });
+
+    // if (Math.random() > 0.5) {
+    //     const timeoutHandle = setTimeout(() => {
+    //         ydoc.getText("codemirror").insert(Math.floor(Math.random(), 10), "this change came from the headless client");
+    //         clearTimeout(timeoutHandle);
+    //     }, Math.floor(Math.random() * 3000));
+    // }
+
+    // setInterval(() => {
+    //     ydoc.getText("codemirror").insert(Math.floor(Math.random(), 10), "this change came from the headless client");
+    // }, 2500);
+
 }
 
-createClient(process.argv[2], "oDWL6LS54Dt1rpFdftyW");
+console.log("Spawning child process", clientID, roomName);
+createClient(clientID, roomName);
 
 // while (true) {}
 app.listen(Math.floor(Math.random() * 5000), () => console.log("Client listening somewhere"))

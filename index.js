@@ -7,99 +7,129 @@ import { config } from "dotenv";
 import { StatsD } from "node-statsd";
 import { configDotenv } from "dotenv";
 import crypto from "node:crypto";
-import { fork } from "node:child_process";
+import { spawn, fork } from "node:child_process";
 config();
 
 const app = express();
 app.use(express.json());
 
-const SIGNALING_SERVERS = ["wss://yjs-signaling-server-5fb6d64b3314.herokuapp.com/"]
+// function generateRoomIds(roomCount = 10) {
+//   return new Array(roomCount).fill(0).map(_ => crypto.randomUUID());
+// }
+// let rooms = generateRoomIds();
 
-let roomsListening = [];
+const childProcesses = [];
+const clientUpdates = {};
 
-function generateRoomIds(roomCount = 10) {
-  return new Array(roomCount).fill(0).map(_ => crypto.randomUUID());
-}
-
-let rooms = generateRoomIds();
-
-const buildLogger = id => thing => console.log(id, thing);
-
-// @param updates {Array<number>} - used to indicate the number of updates each client has received since the start of the program
-function createClient(id = 0, roomName, updates) {
-  const log = buildLogger(id);
-
-  let clientDoc = new Y.Doc();
-  new WebrtcProvider(roomName, clientDoc, { signaling: SIGNALING_SERVERS });
-
-  clientDoc.on("update", update => {
-    const updateText = clientDoc.getText("codemirror");
-    Y.applyUpdate(clientDoc, updateText);
-    
-    log("got update");
-    updates[id] += 1;
-    // console.log(updateText);
-  });
-  
-  // send updates at random indices every 2.5 seconds
-  setInterval(() => {
-    clientDoc.getText("codemirror").insert(Math.floor(Math.random(), 10), "this change came from the headless client");
-  }, 2500);
-}
 
 function buildRoomWithClients(roomName = "oDWL6LS54Dt1rpFdftyW", NUM_CLIENTS, updates) {
 
-  const clients = new Array(NUM_CLIENTS).fill(0).map((_, idx) => {
-    const controller = new AbortController();
-    const { signal } = controller;
-    const child_client = fork("./client.js", [ idx ], { signal })
+  new Array(NUM_CLIENTS).fill(0).forEach(function (_, idx) {
+    childProcesses.push({
+      [roomName + idx]: (function (idx, roomName) {
+        const controller = new AbortController();
+        const { signal } = controller;
+        const child_client = fork("./client.js", [idx, roomName], { signal })
 
-    // update the number of messages received by child client when it gets new updates
-    child_client.on("message", () => {
-      updates[idx] += 1;
-    });
+        const key = idx + roomName;
+        clientUpdates[key] = {
+          delay: 0,
+          lastTime: 0,
+          count: 0
+        };
 
-    child_client.on("message", message => {
-      // const { idx } = JSON.parse(message)
-      updates[idx] += 1;
-    });
+        child_client.on("message", message => {
+          // update the updates struct
+          const key = message.roomName + message.id;
+          clientUpdates[key] = {
+            lastTime: message.now,
+            delay: message.now - updates[key].lastTime,
+            count: updates[key].count + 1,
+            pid: child_client.pid,
+            roomName: message.roomName,
+            roomId: message.id,
+            dead: false
+          }
+          console.log("received message from child with ID: ", child_client.pid);
+        });
 
-    child_client.on("error", () => {
-      updates[idx] = -1;
-    });
+        child_client.on("error", (error) => {
+          console.error(`Child ${idx} from Room ${roomName} died \n`, error);
 
-    return { controller, child_client };
+          // updates[idx] = { ...updates[idx], dead: true };
+          controller.abort(); // terminate the process on error
+        });
+
+        process.on("SIGINT", () => {
+          // updates[idx] = { ...updates[idx], dead: true };
+        });
+
+
+      })(idx, roomName)
+    })
+    // return { controller, child_client };
   });
 
-  // terminate all clients when receiving the termination signal
-  process.on("SIGINT", () => {
-    // terminate all child processes
-    clients.forEach(client => client.controller.abort())
+  // randomly choose client that will send message
+  // let randomClient = clients[Math.floor(Math.random() * clients.length)];
+  // randomClient.child_client.send({ action: "message" });
 
-    // terminate parent process
-    process.exit(1);
-  });
+  // return { id: roomName, clients };
 }
 
 function main() {
   const NUM_CLIENTS = 10;
   const NUM_ROOMS = 5;
   const roomsWithClientsUpdates = new Array(NUM_ROOMS).fill(
-    new Array(NUM_CLIENTS).fill(0)
+    new Array(NUM_CLIENTS).fill({
+      lastTime: 0, // timestamp of last update
+      delay: 0, // lastTime - currentTime (aka) delay between the last update and the update just received,
+      count: 0, // the number of updates received since the client was started
+    })
   );
 
   const roomsWithClients = new Array(NUM_ROOMS).fill(0).map(() => crypto.randomUUID())
     .map((room, idx) => {
       // build room with clients
       buildRoomWithClients(room, NUM_CLIENTS, roomsWithClientsUpdates[idx]);
+      return { room, idx }
     });
 
-    setInterval(() => {
-      roomsWithClientsUpdates.forEach((roomwithClients, idx) => {
-        console.log(`Room ${idx} has clients => `, roomwithClients);
-      });
-    }, 1000);
-  // buildRoomWithClients("oDWL6LS54Dt1rpFdftyW");
+  // process.on("SIGINT", () => {
+  //   // terminate all clients in every room
+  //   roomsWithClients.forEach(room => {
+  //     // console.log(typeof room);
+  //     room.clients.forEach(client => client.controller.abort());
+  //   });
+
+  //   console.log("ABOUT TO QUIT");
+  // });
+
+  setInterval(() => {
+    console.clear();
+    roomsWithClientsUpdates.forEach((roomClients, idx) => {
+      // should divide by the number of active clients if it gets to the point where clients die
+      const selectedRoom = roomsWithClients[idx]
+      // childProcesses.filter(child => Object.keys(child).includes(selectedRoom.room)).reduce((totalLatency, currentClient) => )
+      const averageLatency = roomClients.reduce((totalLatency, currentClient) => totalLatency + currentClient.delay, 0) / roomClients.length;
+      const _roomClients = Object.keys(clientUpdates).filter(clientUpdateKey => clientUpdateKey.includes(selectedRoom.room)).map(clientUpdateKey => clientUpdates[clientUpdateKey]);
+      // let roomId = roomsWithClients[idx].id;
+
+      // console.log(selectedRoom);
+
+      console.group(`Room ${idx} / ID: ${selectedRoom.room}`);
+      console.log("Average Latency: ", averageLatency);
+      console.table(_roomClients);
+      console.groupEnd();
+
+      // console.log(`
+      //   Room ${idx} / ${'ROOMID'}: \n 
+      //   average latency: ${averageLatency} \n
+      //   clients => `, roomClients);
+
+    });
+  }, 1000);
+
 }
 
 main();
