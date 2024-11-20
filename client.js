@@ -10,7 +10,6 @@ const SIGNALING_SERVERS = ["wss://yjs-signaling-server-5fb6d64b3314.herokuapp.co
 
 const clientID = process.argv[2];
 const roomName = process.argv[3];
-const portNumber = process.argv[4];
 
 const buildLogger = id => thing => console.log(id, thing);
 
