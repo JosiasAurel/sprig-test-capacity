@@ -18,45 +18,34 @@ app.use(express.json());
 // }
 // let rooms = generateRoomIds();
 
-const childProcesses = [];
-const clientUpdates = {};
-
-
 function buildRoomWithClients(roomName = "oDWL6LS54Dt1rpFdftyW", NUM_CLIENTS, updates) {
 
-  new Array(NUM_CLIENTS).fill(0).forEach(function (_, idx) {
-    childProcesses.push({
-      [roomName + idx]: (function (idx, roomName) {
+  const clients = new Array(NUM_CLIENTS).fill(0).map(function (_, idx) {
+      return (function (idx, roomName) {
         const controller = new AbortController();
         const { signal } = controller;
         const child_client = fork("./client.js", [idx, roomName], { signal })
 
-        const key = idx + roomName;
-        clientUpdates[key] = {
-          delay: 0,
-          lastTime: 0,
-          count: 0
-        };
-
         child_client.on("message", message => {
           // update the updates struct
-          const key = message.roomName + message.id;
-          clientUpdates[key] = {
+          console.log("got message", message);
+
+          updates[idx] = {
             lastTime: message.now,
-            delay: message.now - updates[key].lastTime,
-            count: updates[key].count + 1,
+            delay: message.now - updates[idx].lastTime,
+            count: updates[idx].count + 1,
             pid: child_client.pid,
             roomName: message.roomName,
             roomId: message.id,
             dead: false
           }
-          console.log("received message from child with ID: ", child_client.pid);
+          // console.log("received message from child with ID: ", child_client.pid);
         });
 
         child_client.on("error", (error) => {
-          console.error(`Child ${idx} from Room ${roomName} died \n`, error);
+          // console.error(`Child ${idx} from Room ${roomName} died \n`, error);
 
-          // updates[idx] = { ...updates[idx], dead: true };
+          updates[idx] = { ...updates[idx], dead: true };
           controller.abort(); // terminate the process on error
         });
 
@@ -65,16 +54,15 @@ function buildRoomWithClients(roomName = "oDWL6LS54Dt1rpFdftyW", NUM_CLIENTS, up
         });
 
 
-      })(idx, roomName)
-    })
-    // return { controller, child_client };
+        return { controller, child_client };
+      })(idx, roomName);
   });
 
   // randomly choose client that will send message
-  // let randomClient = clients[Math.floor(Math.random() * clients.length)];
-  // randomClient.child_client.send({ action: "message" });
+  let randomClient = clients[Math.floor(Math.random() * clients.length)];
+  randomClient.child_client.send({ action: "message" });
 
-  // return { id: roomName, clients };
+  return { id: roomName, clients };
 }
 
 function main() {
@@ -91,8 +79,7 @@ function main() {
   const roomsWithClients = new Array(NUM_ROOMS).fill(0).map(() => crypto.randomUUID())
     .map((room, idx) => {
       // build room with clients
-      buildRoomWithClients(room, NUM_CLIENTS, roomsWithClientsUpdates[idx]);
-      return { room, idx }
+      return buildRoomWithClients(room, NUM_CLIENTS, roomsWithClientsUpdates[idx]);
     });
 
   // process.on("SIGINT", () => {
@@ -109,17 +96,17 @@ function main() {
     console.clear();
     roomsWithClientsUpdates.forEach((roomClients, idx) => {
       // should divide by the number of active clients if it gets to the point where clients die
-      const selectedRoom = roomsWithClients[idx]
+      const selectedRoom = roomsWithClients[idx];
       // childProcesses.filter(child => Object.keys(child).includes(selectedRoom.room)).reduce((totalLatency, currentClient) => )
       const averageLatency = roomClients.reduce((totalLatency, currentClient) => totalLatency + currentClient.delay, 0) / roomClients.length;
-      const _roomClients = Object.keys(clientUpdates).filter(clientUpdateKey => clientUpdateKey.includes(selectedRoom.room)).map(clientUpdateKey => clientUpdates[clientUpdateKey]);
+      // const _roomClients = Object.keys(clientUpdates).filter(clientUpdateKey => clientUpdateKey.includes(selectedRoom.room)).map(clientUpdateKey => clientUpdates[clientUpdateKey]);
       // let roomId = roomsWithClients[idx].id;
 
       // console.log(selectedRoom);
 
       console.group(`Room ${idx} / ID: ${selectedRoom.room}`);
       console.log("Average Latency: ", averageLatency);
-      console.table(_roomClients);
+      console.table(roomClients);
       console.groupEnd();
 
       // console.log(`
