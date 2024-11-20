@@ -7,8 +7,10 @@ const app = express();
 app.use(express.json());
 
 const SIGNALING_SERVERS = ["wss://yjs-signaling-server-5fb6d64b3314.herokuapp.com/"]
+
 const clientID = process.argv[2];
 const roomName = process.argv[3];
+const portNumber = process.argv[4];
 
 const buildLogger = id => thing => console.log(id, thing);
 
@@ -59,4 +61,5 @@ console.log("Spawning child process", clientID, roomName);
 createClient(clientID, roomName);
 
 // while (true) {}
-app.listen(Math.floor(Math.random() * 5000), () => console.log("Client listening somewhere"))
+// app.listen(portNumber, () => console.log("Client listening somewhere"))
+setInterval(() => {}, 1000);
