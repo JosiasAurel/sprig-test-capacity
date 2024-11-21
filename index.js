@@ -353,7 +353,7 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
     header: true,
     columns: {
       clientCount: 'clientCount',
-      delay: 'delay',
+      latency: 'latency',
       roomCount: 'roomCount'
     }
   }, (err, out) => {
