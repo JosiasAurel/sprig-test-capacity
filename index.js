@@ -322,12 +322,14 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
 
     roomKeys.forEach(async roomKey => {
       const clients = updates[roomKey];
+      const clientValues = Object.values(clients) ;
 
-      const randomClient = Object.values(clients)[randomIndex(clients.length)];
+      const randomClient = clientValues[randomIndex(clientValues.length)];
 
       const updatesLatency = [];
       for (let i = 0; i < updateCount; i++) {
         randomClient.child.send({ action: 'message' });
+
         // wait until we get acknowledgement from client that message was received 
         await new Promise((resolve, reject) => {
           if (message.type === 'ack') resolve();
