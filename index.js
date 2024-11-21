@@ -28,13 +28,15 @@ function spawnChild(parentRoom, idx) {
 
   updates[parentRoom] = {
     ...updates[parentRoom],
-    [pid]: { lastTime: 0, delay: 0, count: 0, child: childClient, controller: controller, pid: childClient.pid, dead: false }
+    [pid]: { lastTime: 0, delay: 0, count: 0, child: childClient, controller: controller, pid: pid, dead: false }
   }
 
   console.log("spawned child", childClient.pid, parentRoom);
 
   childClient.on("message", message => {
       console.log(childClient.pid, "Sending update to index", idx);
+      if (message.type !== 'update') return;
+
       updates[parentRoom][pid] = {
         ...updates[parentRoom][pid],
         lastTime: message.now,
@@ -237,7 +239,7 @@ app.get("/self-test-room/:clientCount/:updateCount", async (req, res) => {
       // wait until message has been sent
       await new Promise((resolve, reject) => {
         childClient.on('message', message => {
-          if (message.message === 'sent') resolve();
+          if (message.type === 'ack') resolve();
         });
       });
       latencies.push(computeAverageLatency(roomName));

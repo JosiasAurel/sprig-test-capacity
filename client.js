@@ -31,7 +31,7 @@ function createClient(id = 0, roomName) {
 
         const now = new Date().getTime();
 
-        process.send({ id, roomName, now });
+        process.send({ type: 'update', id, roomName, now });
         // console.log("got update")
     });
 
@@ -40,7 +40,7 @@ function createClient(id = 0, roomName) {
     process.on("message", message => {
         if (message.action === "message") {
             ydoc.getText("codemirror").insert(Math.floor(Math.random(), 10), "this change came from the headless client");
-            process.send({ message: 'sent' });
+            process.send({ type: 'ack' });
         }
     });
 
