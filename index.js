@@ -8,6 +8,8 @@ import { StatsD } from "node-statsd";
 import { configDotenv } from "dotenv";
 import crypto from "node:crypto";
 import { spawn, fork } from "node:child_process";
+import { stringify } from "csv";
+import { writeFileSync } from "node:fs";
 config();
 
 const app = express();
@@ -132,11 +134,7 @@ app.get("/", (req, res) => {
   res.send("Working...");
 })
 
-// this can be used for both spinning up a room with clients or adding new clients to an existing room
-app.get("/create-room/:roomName/:clients", (req, res) => {
-  const roomName = req.params.roomName;
-  const clientCount = parseInt(req.params.clients ?? '0');
-
+function createRoom(roomName, clientCount) {
   // create the room if it doesn't exist yet
   if (!Object.hasOwn(updates, roomName)) {
     updates = { ...updates, [roomName]: {} };
@@ -146,10 +144,23 @@ app.get("/create-room/:roomName/:clients", (req, res) => {
   for (let i = 0; i < clientCount; i++) {
     spawnChild(roomName, Object.keys(updates[roomName]).length);
   }
-  // should add a ref to the room in a 'rooms' object so they can be updated later
-  
-  // buildRoomWithClients(roomName, clientCount);
+}
 
+function resetRoomAndClients() {
+  Object.values(updates).forEach(roomClients => {
+    Object.values(roomClients).forEach(client => client.controller.abort());
+  })
+
+  // flush the updates array
+  updates = {};
+}
+
+// this can be used for both spinning up a room with clients or adding new clients to an existing room
+app.get("/create-room/:roomName/:clients", (req, res) => {
+  const roomName = req.params.roomName;
+  const clientCount = parseInt(req.params.clients ?? '0');
+
+  createRoom(roomName, clientCount);
   res.status(200).json({ ok: true });
 })
 
@@ -191,6 +202,63 @@ app.get("/send-update/:roomName/:clientId", (req, res) => {
   const client = updates[roomName][clientId];
   // tell the child process to send an update
   client.child.send({ action: 'message' });
+
+  res.json({ ok: true });
+})
+
+const computeAverageLatency = roomName => {
+  const childClients = Object.values(updates[roomName]);
+  return childClients.
+        reduce((totalLatency, currentClient) => 
+          totalLatency + currentClient.delay, 0) 
+        / childClients.length;
+}
+
+const stats = [];
+app.get("/self-test-room/:clientCount/:updateCount", async (req, res) => {
+  resetRoomAndClients();
+
+  const clientCount = parseInt(req.params.clientCount ?? '100');
+  const updateCount = parseInt(req.params.updateCount ?? '100');
+
+  const roomName = crypto.randomUUID();
+
+  // create a new room with two clients
+  createRoom(roomName, 2);
+
+  const latencyList = [];
+  for (let i = 0; i < clientCount - 2; i++) {
+    // create a new client
+    const { childClient } = spawnChild(roomName, i + 2);
+    let latencies = [];
+
+    for (let j = 0; j < updateCount; j++) {
+      childClient.send({ action: 'message' });
+      // wait until message has been sent
+      await new Promise((resolve, reject) => {
+        childClient.on('message', message => {
+          if (message.message === 'sent') resolve();
+        });
+      });
+      latencies.push(computeAverageLatency(roomName));
+    }
+    
+    // record the average latency
+    latencyList.push({
+      clientCount: Object.values(updates[roomName]).length,
+      latency: latencies.reduce((acc, curr) => acc + curr, 0) / latencies.length,
+    });
+
+    // reset the array for the next calculation
+    latencies = [];
+  }
+
+  stringify(latencyList, (err, out) => {
+    if (err) res.json({ ok: false, msg: "Failed to create csv"})
+
+    // write the output to a file
+    writeFileSync("single-room.csv", out);
+  })
 
   res.json({ ok: true });
 })

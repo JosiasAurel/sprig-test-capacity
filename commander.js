@@ -1,5 +1,5 @@
 import readline from 'node:readline';
-
+import crypto from "node:crypto";
 
 const CONTROLLER_URL = "http://127.0.0.1:3001";
 
@@ -9,10 +9,7 @@ async function sendCommand(path) {
     // const data = await response.text();
     const data = await response.json();
 
-    if (data.ok) {
-        console.log('✅');
-    } else console.warn(`Error: ${data.msg}`);
-
+    return data;
 }
 
 async function handleCommand(command) {
@@ -27,8 +24,21 @@ async function handleCommand(command) {
         path = 'delete-client/' + command.slice(3).split(" ").join("/");
     } else if (command.startsWith("su ")) { // command to delete clients in a room
         path = 'send-update/' + command.slice(3).split(" ").join("/");
+    } else if (command.startsWith("bc ")) {
+        const [ clientCount, updatePerCount ] = command.slice(3).split(" ");
+        const roomName = crypto.randomUUID();
+        // for (let i = 0; i < clientCount; i++) {
+        //     path = 'create-room/' + roomName + "/" + '1';
+        //     for (let j = 0; j < updatePerCount; j++) {
+        //         path = 'send-update/' + roomName + "/" + ;
+        //         const result = await sendCommand();
+        //     }
+        // }
     }
-    await sendCommand(path);
+    const result = await sendCommand(path);
+
+    if (result.ok) return console.log('✅');
+    return console.warn(`Error: ${result.msg}`);
 }
 
 const rl = readline.createInterface({
