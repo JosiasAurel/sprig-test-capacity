@@ -220,8 +220,8 @@ const stats = [];
 app.get("/self-test-room/:clientCount/:updateCount", async (req, res) => {
   resetRoomAndClients();
 
-  const clientCount = parseInt(req.params.clientCount ?? '100');
-  const updateCount = parseInt(req.params.updateCount ?? '100');
+  const clientCount = parseInt(req.params.clientCount ?? '10');
+  const updateCount = parseInt(req.params.updateCount ?? '10');
 
   const roomName = crypto.randomUUID();
 
@@ -266,6 +266,64 @@ app.get("/self-test-room/:clientCount/:updateCount", async (req, res) => {
 
     // write the output to a file
     writeFileSync("single-room.csv", out);
+  })
+
+  res.json({ ok: true });
+})
+
+app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req, res) => {
+  resetRoomAndClients();
+
+  const roomCount = parseInt(req.params.roomCount ?? '10');
+  const clientCount = parseInt(req.params.clientCount ?? '10');
+  const updateCount = parseInt(req.params.updateCount ?? '10');
+
+  const latencyList = [];
+  for (let i = 0; i < roomCount; i++) {
+    const roomName = crypto.randomUUID();
+    // create a new room with two clients
+    createRoom(roomName, 2);
+
+    let roomLatencies = [];
+    for (let j = 0; j < clientCount - 2; j++) {
+      const { childClient } = spawnChild(roomName, j + 2);
+
+      let latencies = [];
+      for (let k = 0; k < updateCount; k++) {
+        childClient.send({ action: 'message' });
+        // wait until message has been sent
+        await new Promise((resolve, reject) => {
+          childClient.on('message', message => {
+            if (message.type === 'ack') resolve();
+          });
+        });
+        latencies.push(computeAverageLatency(roomName));
+      }
+      // push average room latency
+      roomLatencies.push(
+        latencies.reduce((acc, curr) => acc + curr, 0) / latencies.length
+      )
+    }
+    latencyList.push({
+      clientCount: Object.values(updates[roomName]).length,
+      delay: latencies.reduce((acc, curr) => acc + curr, 0) / latencies.length,
+      roomCount: i + 1
+    });
+
+  }
+
+  stringify(latencyList, {
+    header: true,
+    columns: {
+      clientCount: 'clientCount',
+      delay: 'delay',
+      roomCount: 'roomCount'
+    }
+  }, (err, out) => {
+    if (err) res.json({ ok: false, msg: "Failed to create csv" })
+
+    // write the output to a file
+    writeFileSync("multi-room.csv", out);
   })
 
   res.json({ ok: true });
