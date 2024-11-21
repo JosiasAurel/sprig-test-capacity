@@ -308,7 +308,7 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
     // increase if it hasn't reached the desired count
     currentRoomCount += (currentRoomCount < roomCount) ? 1 : 0;
 
-    latencies.push({ latency: loadTestClients(), roomCount });
+    latencies.push({ latency: loadTestClients(), roomCount: currentRoomCount, clientCount: currentClientCount });
   }
 
   function increaseClientCountsTo(roomName, count) {
@@ -322,9 +322,8 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
 
     roomKeys.forEach(async roomKey => {
       const clients = updates[roomKey];
-      const clientsKey = Object.keys(clients);
 
-      const randomClient = clients[clientsKey[randomIndex(clients.length)]];
+      const randomClient = Object.values(clients)[randomIndex(clients.length)];
 
       const updatesLatency = [];
       for (let i = 0; i < updateCount; i++) {
