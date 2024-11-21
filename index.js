@@ -332,7 +332,9 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
 
         // wait until we get acknowledgement from client that message was received 
         await new Promise((resolve, reject) => {
-          if (message.type === 'ack') resolve();
+          randomClient.child.on("message", message => {
+            if (message.type === 'ack') resolve();
+          });
         })
 
         updatesLatency.push(computeAverageLatency(roomKey));
