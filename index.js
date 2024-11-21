@@ -274,6 +274,8 @@ app.get("/self-test-room/:clientCount/:updateCount", async (req, res) => {
   res.json({ ok: true });
 })
 
+const randomIndex = length = Math.floor(Math.random() * length);
+
 app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req, res) => {
   resetRoomAndClients();
 
@@ -285,42 +287,66 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
   createRoom(room1, 2);
   createRoom(room2, 2);
 
-  const latencyList = [];
-  for (let i = 0; i < roomCount; i++) {
-    const roomName = crypto.randomUUID();
+  let currentRoomCount = 2;
+  let currentClientCount = 2;
+  let latencies = [];
 
-    // create a new room with the same number of clients as existing rooms 
-    createRoom(roomName, Object.keys(updates[room1]).length);
+  const averageLatency = loadTestClients();
+  latencies.push({ latency: averageLatency, roomCount });
 
-    let roomLatencies = [];
-    for (let j = 0; j < clientCount - 2; j++) {
-      const { childClient } = spawnChild(roomName, j + 2);
+  while (currentRoomCount != roomCount && currentClientCount != clientCount) {
+    // increase if it hasn't reached the desired count
+    currentClientCount += (currentClientCount < clientCount) ? 1 : 0;
 
-      let latencies = [];
-      for (let k = 0; k < updateCount; k++) {
-        childClient.send({ action: 'message' });
-        // wait until message has been sent
-        await new Promise((resolve, reject) => {
-          childClient.on('message', message => {
-            if (message.type === 'ack') resolve();
-          });
-        });
-        latencies.push(computeAverageLatency(roomName));
-      }
-      // push average room latency
-      roomLatencies.push(
-        latencies.reduce((acc, curr) => acc + curr, 0) / latencies.length
-      )
-    }
-    latencyList.push({
-      // clientCount: Object.values(updates[roomName]).length,
-      delay: roomLatencies.reduce((acc, curr) => acc + curr, 0) / roomLatencies.length,
-      roomCount: i + 1
-    });
+    // increase the number of clients in every room
+    const roomKeys = Object.keys(updates);
+    roomKeys.forEach(roomKey => increaseClientCountsTo(roomKey, currentClientCount));
 
+    latencies.push({ latency: loadTestClients(), roomCount: currentRoomCount, clientCount: currentClientCount });
+
+    createRoom(crypto.randomUUID(), currentClientCount);
+    // increase if it hasn't reached the desired count
+    currentRoomCount += (currentRoomCount < roomCount) ? 1 : 0;
+
+    latencies.push({ latency: loadTestClients(), roomCount });
   }
 
-  stringify(latencyList, {
+  function increaseClientCountsTo(roomName, count) {
+    const newClientsCount = count - Object.keys(updates[roomName]).length;
+    createRoom(roomName, newClientsCount);
+  }
+
+  function loadTestClients() {
+    const latencies = [];
+    const roomKeys = Object.keys(updates);
+
+    roomKeys.forEach(async roomKey => {
+      const clients = updates[roomKey];
+      const clientsKey = Object.keys(clients);
+
+      const randomClient = clients[clientsKey[randomIndex(clients.length)]];
+
+      const updatesLatency = [];
+      for (let i = 0; i < updateCount; i++) {
+        randomClient.child.send({ action: 'message' });
+        // wait until we get acknowledgement from client that message was received 
+        await new Promise((resolve, reject) => {
+          if (message.type === 'ack') resolve();
+        })
+
+        updatesLatency.push(computeAverageLatency(roomKey));
+      }
+      // push average latency across <updateCount> updates
+      latencies.push(
+        updatesLatency.reduce((acc, curr) => acc + curr, 0) / updatesLatency.length
+      );
+    });
+
+    // compute average latency across every room
+    return latencies.reduce((acc, curr) => acc + curr, 0) / latencies.length;
+  }
+
+  stringify(latencies, {
     header: true,
     columns: {
       clientCount: 'clientCount',
