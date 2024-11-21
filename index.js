@@ -348,7 +348,9 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
     });
 
     // compute average latency across every room
-    return latencies.reduce((acc, curr) => acc + curr, 0) / latencies.length;
+    const averageLatency = latencies.reduce((acc, curr) => acc + curr, 0) / latencies.length;
+    if (Number.isNaN(averageLatency)) throw Error("Average Latency here is NaN")
+    return averageLatency;
   }
 
   stringify(latencies, {
