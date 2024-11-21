@@ -248,14 +248,20 @@ app.get("/self-test-room/:clientCount/:updateCount", async (req, res) => {
     // record the average latency
     latencyList.push({
       clientCount: Object.values(updates[roomName]).length,
-      latency: latencies.reduce((acc, curr) => acc + curr, 0) / latencies.length,
+      delay: latencies.reduce((acc, curr) => acc + curr, 0) / latencies.length,
     });
 
     // reset the array for the next calculation
     latencies = [];
   }
 
-  stringify(latencyList, (err, out) => {
+  stringify(latencyList, {
+    header: true,
+    columns: {
+      clientCount: 'clientCount',
+      delay: latency
+    }
+  }, (err, out) => {
     if (err) res.json({ ok: false, msg: "Failed to create csv"})
 
     // write the output to a file
