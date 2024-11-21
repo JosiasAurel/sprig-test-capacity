@@ -12,6 +12,7 @@ import { stringify } from "csv";
 import { writeFileSync } from "node:fs";
 config();
 
+const CHILD_PROCESS_MAX_LISTENERS = 100;
 const app = express();
 app.use(express.json());
 
@@ -25,6 +26,8 @@ function spawnChild(parentRoom, idx) {
 
   const childClient = fork("./client.js", [ idx, parentRoom ], { signal });
   const pid = childClient.pid;
+
+  childClient.setMaxListeners(CHILD_PROCESS_MAX_LISTENERS);
 
   updates[parentRoom] = {
     ...updates[parentRoom],
@@ -305,8 +308,8 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
       )
     }
     latencyList.push({
-      clientCount: Object.values(updates[roomName]).length,
-      delay: latencies.reduce((acc, curr) => acc + curr, 0) / latencies.length,
+      // clientCount: Object.values(updates[roomName]).length,
+      delay: roomLatencies.reduce((acc, curr) => acc + curr, 0) / roomLatencies.length,
       roomCount: i + 1
     });
 
