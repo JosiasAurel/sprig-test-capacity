@@ -302,13 +302,13 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
     const roomKeys = Object.keys(updates);
     roomKeys.forEach(roomKey => increaseClientCountsTo(roomKey, currentClientCount));
 
-    latencies.push({ latency: loadTestClients(), roomCount: currentRoomCount, clientCount: currentClientCount });
+    latencies.push({ latency: await loadTestClients(), roomCount: currentRoomCount, clientCount: currentClientCount });
 
     createRoom(crypto.randomUUID(), currentClientCount);
     // increase if it hasn't reached the desired count
     currentRoomCount += (currentRoomCount < roomCount) ? 1 : 0;
 
-    latencies.push({ latency: loadTestClients(), roomCount: currentRoomCount, clientCount: currentClientCount });
+    latencies.push({ latency: await loadTestClients(), roomCount: currentRoomCount, clientCount: currentClientCount });
   }
 
   function increaseClientCountsTo(roomName, count) {
@@ -316,11 +316,12 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
     createRoom(roomName, newClientsCount);
   }
 
-  function loadTestClients() {
+  async function loadTestClients() {
     const latencies = [];
     const roomKeys = Object.keys(updates);
 
-    roomKeys.forEach(async roomKey => {
+    for (let roomKey of roomKeys) {
+
       const clients = updates[roomKey];
       const clientValues = Object.values(clients) ;
 
@@ -347,7 +348,7 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
         // dividing by 0 will give NaN and pollute the future values
         updatesLatency.length > 0 ? updatesAverageLatency : 0
       );
-    });
+    }
 
     // compute average latency across every room
     const averageLatency = latencies.reduce((acc, curr) => acc + curr, 0) / latencies.length;
