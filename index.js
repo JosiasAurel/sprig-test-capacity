@@ -281,11 +281,16 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
   const clientCount = parseInt(req.params.clientCount ?? '10');
   const updateCount = parseInt(req.params.updateCount ?? '10');
 
+  const [room1, room2] = new Array(2).fill(0).map(_ => crypto.randomUUID());
+  createRoom(room1, 2);
+  createRoom(room2, 2);
+
   const latencyList = [];
   for (let i = 0; i < roomCount; i++) {
     const roomName = crypto.randomUUID();
-    // create a new room with two clients
-    createRoom(roomName, 2);
+
+    // create a new room with the same number of clients as existing rooms 
+    createRoom(roomName, Object.keys(updates[room1]).length);
 
     let roomLatencies = [];
     for (let j = 0; j < clientCount - 2; j++) {
