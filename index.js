@@ -259,7 +259,7 @@ app.get("/self-test-room/:clientCount/:updateCount", async (req, res) => {
     header: true,
     columns: {
       clientCount: 'clientCount',
-      delay: latency
+      delay: 'delay'
     }
   }, (err, out) => {
     if (err) res.json({ ok: false, msg: "Failed to create csv"})
