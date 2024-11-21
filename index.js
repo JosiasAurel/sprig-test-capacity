@@ -274,7 +274,7 @@ app.get("/self-test-room/:clientCount/:updateCount", async (req, res) => {
   res.json({ ok: true });
 })
 
-const randomIndex = length = Math.floor(Math.random() * length);
+const randomIndex = length => Math.floor(Math.random() * length);
 
 app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req, res) => {
   resetRoomAndClients();
