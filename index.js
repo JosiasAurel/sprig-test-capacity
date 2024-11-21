@@ -337,12 +337,14 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
           });
         })
 
+        if (Number.isNaN(computeAverageLatency(roomKey))) throw new Error("Nan when computing update latency");
         updatesLatency.push(computeAverageLatency(roomKey));
       }
       // push average latency across <updateCount> updates
       latencies.push(
         updatesLatency.reduce((acc, curr) => acc + curr, 0) / updatesLatency.length
       );
+      if (latencies.some(v => Number.isNaN(v))) throw new Error("NaN in room average latency");
     });
 
     // compute average latency across every room
