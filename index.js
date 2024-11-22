@@ -276,6 +276,18 @@ app.get("/self-test-room/:clientCount/:updateCount", async (req, res) => {
 
 const randomIndex = length => Math.floor(Math.random() * length);
 
+// *Measure the latency -- Average latency across every room
+// Sum(Average latency across all clients in a room) [0 - N] / N
+
+// Create two rooms
+// Send updates from one client in each room
+// Measure and record the latency of the update
+//  Add a new clients to each room
+//  Measure the latency when sending updates across the clients in each room
+//  Add a new room with the same number of clients as every other room
+// Measure the latency across all the rooms again and record
+// *Keeps going till we've reached the target number of rooms and clients per room
+
 app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req, res) => {
   resetRoomAndClients();
 
@@ -291,8 +303,8 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
   let currentClientCount = 2;
   let latencies = [];
 
-  const averageLatency = loadTestClients();
-  latencies.push({ latency: averageLatency, roomCount });
+  const averageLatency = await loadTestClients();
+  latencies.push({ latency: averageLatency, roomCount: currentRoomCount, clientCount: currentClientCount });
 
   while (currentRoomCount != roomCount && currentClientCount != clientCount) {
     // increase if it hasn't reached the desired count
@@ -370,6 +382,13 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
   })
 
   res.json({ ok: true });
+})
+
+process.on("SIGINT", () => {
+  // kill all processes across all rooms
+  Object.values(updates).map(roomChildren => {
+    Object.values(roomChildren).map(child => child.controller.abort());
+  });
 })
 
 const PORT = process.env.PORT || 3001;
