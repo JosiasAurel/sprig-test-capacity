@@ -302,6 +302,7 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
   let currentRoomCount = 2;
   let currentClientCount = 2;
   let latencies = [];
+  const ackQueue = [];
 
   const averageLatency = await loadTestClients();
   latencies.push({ latency: averageLatency, roomCount: currentRoomCount, clientCount: currentClientCount });
@@ -310,6 +311,7 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
     console.clear();
     console.log("Current Room Count: ", currentRoomCount);
     console.log("Current Client Count: ", currentClientCount);
+    console.log("Ack Queue Length: ", ackQueue.length);
   }, 1000);
 
   while (currentRoomCount != roomCount && currentClientCount != clientCount) {
@@ -334,6 +336,7 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
     createRoom(roomName, newClientsCount);
   }
 
+
   async function loadTestClients() {
     const latencies = [];
     const roomKeys = Object.keys(updates);
@@ -352,7 +355,8 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
         // wait until we get acknowledgement from client that message was received 
         await new Promise((resolve, reject) => {
           randomClient.child.on("message", message => {
-            if (message.type === 'ack') resolve();
+            ackQueue.push(1);
+            if (message.type === 'ack') { ackQueue.pop(); resolve(); } 
           });
         })
 
@@ -395,7 +399,7 @@ process.on("SIGINT", () => {
   Object.values(updates).map(roomChildren => {
     Object.values(roomChildren).map(child => child.controller.abort());
   });
-  exit(0);
+  process.exit(0);
 })
 
 const PORT = process.env.PORT || 3001;
