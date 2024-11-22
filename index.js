@@ -115,21 +115,21 @@ function main() {
       return buildRoomWithClients(room, NUM_CLIENTS);
     });
 
-  setInterval(() => {
-    console.clear();
-    Object.keys(updates).forEach((roomKey, roomIdx) => {
-      const childClients = updates[roomKey];
-      let childClientValues = Object.values(childClients);
-      childClientValues = childClientValues.map(childClientValue => Object.fromEntries(Object.entries(childClientValue).filter(entry => !entry.includes('controller'))))
-      const averageDelay = childClientValues.reduce((totalDelay, currentClient) => totalDelay + currentClient.delay, 0) / childClientValues.length;
-      console.group(`Room ${roomIdx} / ID: ${roomKey}`);
-      console.log("Average Delay: ", averageDelay);
-      console.table(childClientValues)
-      // console.table(childClients);
-      console.groupEnd();
-    });
+  // setInterval(() => {
+  //   console.clear();
+  //   Object.keys(updates).forEach((roomKey, roomIdx) => {
+  //     const childClients = updates[roomKey];
+  //     let childClientValues = Object.values(childClients);
+  //     childClientValues = childClientValues.map(childClientValue => Object.fromEntries(Object.entries(childClientValue).filter(entry => !entry.includes('controller'))))
+  //     const averageDelay = childClientValues.reduce((totalDelay, currentClient) => totalDelay + currentClient.delay, 0) / childClientValues.length;
+  //     console.group(`Room ${roomIdx} / ID: ${roomKey}`);
+  //     console.log("Average Delay: ", averageDelay);
+  //     console.table(childClientValues)
+  //     // console.table(childClients);
+  //     console.groupEnd();
+  //   });
 
-  }, 1000);
+  // }, 1000);
 
 }
 
@@ -306,6 +306,12 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
   const averageLatency = await loadTestClients();
   latencies.push({ latency: averageLatency, roomCount: currentRoomCount, clientCount: currentClientCount });
 
+  setInterval(() => {
+    console.clear();
+    console.log("Current Room Count: ", currentRoomCount);
+    console.log("Current Client Count: ", currentClientCount);
+  }, 1000);
+
   while (currentRoomCount != roomCount && currentClientCount != clientCount) {
     // increase if it hasn't reached the desired count
     currentClientCount += (currentClientCount < clientCount) ? 1 : 0;
@@ -389,6 +395,7 @@ process.on("SIGINT", () => {
   Object.values(updates).map(roomChildren => {
     Object.values(roomChildren).map(child => child.controller.abort());
   });
+  exit(0);
 })
 
 const PORT = process.env.PORT || 3001;
