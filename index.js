@@ -7,103 +7,400 @@ import { config } from "dotenv";
 import { StatsD } from "node-statsd";
 import { configDotenv } from "dotenv";
 import crypto from "node:crypto";
-import { fork } from "node:child_process";
+import { spawn, fork } from "node:child_process";
+import { stringify } from "csv";
+import { writeFileSync } from "node:fs";
 config();
 
+const CHILD_PROCESS_MAX_LISTENERS = 100;
 const app = express();
 app.use(express.json());
 
-const SIGNALING_SERVERS = ["wss://yjs-signaling-server-5fb6d64b3314.herokuapp.com/"]
+let portNumber = 4000;
 
-let roomsListening = [];
+let updates = {};
 
-function generateRoomIds(roomCount = 10) {
-  return new Array(roomCount).fill(0).map(_ => crypto.randomUUID());
+function spawnChild(parentRoom, idx) {
+  const controller = new AbortController();
+  const { signal } = controller;
+
+  const childClient = fork("./client.js", [ idx, parentRoom ], { signal });
+  const pid = childClient.pid;
+
+  childClient.setMaxListeners(CHILD_PROCESS_MAX_LISTENERS);
+
+  updates[parentRoom] = {
+    ...updates[parentRoom],
+    [pid]: { lastTime: 0, delay: 0, count: 0, child: childClient, controller: controller, pid: pid, dead: false }
+  }
+
+  console.log("spawned child", childClient.pid, parentRoom);
+
+  childClient.on("message", message => {
+      console.log(childClient.pid, "Sending update to index", idx);
+      if (message.type !== 'update') return;
+
+      updates[parentRoom][pid] = {
+        ...updates[parentRoom][pid],
+        lastTime: message.now,
+        delay: updates[parentRoom][pid].lastTime === 0 ? 0 : message.now - updates[parentRoom][pid].lastTime,
+        count: updates[parentRoom][pid].count + 1,
+      }
+  })
+
+  childClient.on("error", _ => {
+    updates[parentRoom][pid] = { ...updates[parentRoom][pid], dead: true };
+    controller.abort();
+  })
+
+  return { controller, childClient };
 }
 
-let rooms = generateRoomIds();
+function buildRoomWithClients(roomName = "oDWL6LS54Dt1rpFdftyW", NUM_CLIENTS) {
 
-const buildLogger = id => thing => console.log(id, thing);
+  const clients = new Array(NUM_CLIENTS).fill(0).map(function (_, idx) {
+    // const controller = new AbortController();
+    // const { signal } = controller;
+    // const child_client = fork("./client.js", [idx, roomName, portNumber], { signal })
 
-// @param updates {Array<number>} - used to indicate the number of updates each client has received since the start of the program
-function createClient(id = 0, roomName, updates) {
-  const log = buildLogger(id);
+    // portNumber += 1;
+    // updates[roomName] = {
+    //   ...updates[roomName],
+    //   [child_client.pid]: { lastTime: 0, delay: 0, count: 0 }
+    // }
+    // // updates[roomName][child_client.pid] = { lastTime: 0, delay: 0, count: 0 };
 
-  let clientDoc = new Y.Doc();
-  new WebrtcProvider(roomName, clientDoc, { signaling: SIGNALING_SERVERS });
+    // console.log("spawned child", child_client.pid, roomName);
+    // child_client.on("message", message => {
+      
+    //   console.log(child_client.pid, "Sending update to index", idx);
+    //   updates[roomName][child_client.pid] = {
+    //     lastTime: message.now,
+    //     delay: message.now - updates[roomName][child_client.pid].lastTime,
+    //     count: updates[roomName][child_client.pid].count + 1,
+    //     pid: child_client.pid,
+    //     roomName: message.roomName,
+    //     childId: message.id,
+    //     dead: false
+    //   }
+    // });
 
-  clientDoc.on("update", update => {
-    const updateText = clientDoc.getText("codemirror");
-    Y.applyUpdate(clientDoc, updateText);
-    
-    log("got update");
-    updates[id] += 1;
-    // console.log(updateText);
-  });
-  
-  // send updates at random indices every 2.5 seconds
-  setInterval(() => {
-    clientDoc.getText("codemirror").insert(Math.floor(Math.random(), 10), "this change came from the headless client");
-  }, 2500);
-}
+    // child_client.on("error", (error) => {
 
-function buildRoomWithClients(roomName = "oDWL6LS54Dt1rpFdftyW", NUM_CLIENTS, updates) {
+    //   updates[roomName][child_client.pid] = { ...updates[roomName][child_client.pid], dead: true };
+    //   controller.abort(); // terminate the process on error
+    // });
 
-  const clients = new Array(NUM_CLIENTS).fill(0).map((_, idx) => {
-    const controller = new AbortController();
-    const { signal } = controller;
-    const child_client = fork("./client.js", [ idx ], { signal })
-
-    // update the number of messages received by child client when it gets new updates
-    child_client.on("message", () => {
-      updates[idx] += 1;
-    });
-
-    child_client.on("message", message => {
-      // const { idx } = JSON.parse(message)
-      updates[idx] += 1;
-    });
-
-    child_client.on("error", () => {
-      updates[idx] = -1;
-    });
-
-    return { controller, child_client };
+    // return { controller, child_client };
+    return spawnChild(roomName, idx);
   });
 
-  // terminate all clients when receiving the termination signal
-  process.on("SIGINT", () => {
-    // terminate all child processes
-    clients.forEach(client => client.controller.abort())
+  // randomly choose client that will send message
+  // let randomClient = clients[Math.floor(Math.random() * clients.length)];
+  // randomClient.child_client.send({ action: "message" });
 
-    // terminate parent process
-    process.exit(1);
-  });
+  return { id: roomName, clients };
 }
 
 function main() {
-  const NUM_CLIENTS = 10;
-  const NUM_ROOMS = 5;
-  const roomsWithClientsUpdates = new Array(NUM_ROOMS).fill(
-    new Array(NUM_CLIENTS).fill(0)
-  );
+  const NUM_CLIENTS = 2;
+  const NUM_ROOMS = 2;
 
-  const roomsWithClients = new Array(NUM_ROOMS).fill(0).map(() => crypto.randomUUID())
+  new Array(NUM_ROOMS).fill(0).map(() => {
+    let roomId = crypto.randomUUID()
+    return roomId;
+  })
     .map((room, idx) => {
       // build room with clients
-      buildRoomWithClients(room, NUM_CLIENTS, roomsWithClientsUpdates[idx]);
+      return buildRoomWithClients(room, NUM_CLIENTS);
     });
 
-    setInterval(() => {
-      roomsWithClientsUpdates.forEach((roomwithClients, idx) => {
-        console.log(`Room ${idx} has clients => `, roomwithClients);
-      });
-    }, 1000);
-  // buildRoomWithClients("oDWL6LS54Dt1rpFdftyW");
+  // setInterval(() => {
+  //   console.clear();
+  //   Object.keys(updates).forEach((roomKey, roomIdx) => {
+  //     const childClients = updates[roomKey];
+  //     let childClientValues = Object.values(childClients);
+  //     childClientValues = childClientValues.map(childClientValue => Object.fromEntries(Object.entries(childClientValue).filter(entry => !entry.includes('controller'))))
+  //     const averageDelay = childClientValues.reduce((totalDelay, currentClient) => totalDelay + currentClient.delay, 0) / childClientValues.length;
+  //     console.group(`Room ${roomIdx} / ID: ${roomKey}`);
+  //     console.log("Average Delay: ", averageDelay);
+  //     console.table(childClientValues)
+  //     // console.table(childClients);
+  //     console.groupEnd();
+  //   });
+
+  // }, 1000);
+
 }
 
 main();
 
+app.get("/", (req, res) => {
+  res.send("Working...");
+})
+
+function createRoom(roomName, clientCount) {
+  // create the room if it doesn't exist yet
+  if (!Object.hasOwn(updates, roomName)) {
+    updates = { ...updates, [roomName]: {} };
+  }
+
+  // add clients to the room
+  for (let i = 0; i < clientCount; i++) {
+    spawnChild(roomName, Object.keys(updates[roomName]).length);
+  }
+}
+
+function resetRoomAndClients() {
+  Object.values(updates).forEach(roomClients => {
+    Object.values(roomClients).forEach(client => client.controller.abort());
+  })
+
+  // flush the updates array
+  updates = {};
+}
+
+// this can be used for both spinning up a room with clients or adding new clients to an existing room
+app.get("/create-room/:roomName/:clients", (req, res) => {
+  const roomName = req.params.roomName;
+  const clientCount = parseInt(req.params.clients ?? '0');
+
+  createRoom(roomName, clientCount);
+  res.status(200).json({ ok: true });
+})
+
+app.get("/delete-room/:roomName", (req, res) => {
+  const roomName = req.params.roomName;
+
+  if (!Object.hasOwn(updates, roomName)) res.json({ ok: false, msg: "Room does not exist" });
+
+  // kill all the clients in that room
+  Object.values(updates[roomName]).forEach(client => client.controller.abort());
+
+  delete updates[roomName];
+
+  res.json({ ok: true });
+})
+
+app.get("/delete-client/:roomName/:clients", (req, res) => {
+  const roomName = req.params.roomName;
+  const clientCount = parseInt(req.params.clients ?? '0');
+
+  for (let i = 0; i < clientCount; i++) {
+    const clients = Object.keys(updates[roomName])
+    let randomClientIndex = Math.floor(Math.random() * clients.length);
+
+    const randomClient = clients[randomClientIndex]
+    randomClient.controller.abort();
+  }
+
+  res.json({ ok: true });
+})
+
+app.get("/send-update/:roomName/:clientId", (req, res) => {
+  const roomName = req.params.roomName;
+  const clientId = req.params.clientId ?? '0';
+
+  if (!Object.hasOwn(updates, roomName)) res.json({ ok: false, msg: "Room does not exist" })
+  if (!Object.hasOwn(updates[roomName], clientId)) res.json({ ok: false, msg: "Client does not exit" })
+
+  const client = updates[roomName][clientId];
+  // tell the child process to send an update
+  client.child.send({ action: 'message' });
+
+  res.json({ ok: true });
+})
+
+const computeAverageLatency = roomName => {
+  const childClients = Object.values(updates[roomName]);
+  return childClients.
+        reduce((totalLatency, currentClient) => 
+          totalLatency + currentClient.delay, 0) 
+        / childClients.length;
+}
+
+const stats = [];
+app.get("/self-test-room/:clientCount/:updateCount", async (req, res) => {
+  resetRoomAndClients();
+
+  const clientCount = parseInt(req.params.clientCount ?? '10');
+  const updateCount = parseInt(req.params.updateCount ?? '10');
+
+  const roomName = crypto.randomUUID();
+
+  // create a new room with two clients
+  createRoom(roomName, 2);
+
+  const latencyList = [];
+  for (let i = 0; i < clientCount - 2; i++) {
+    // create a new client
+    const { childClient } = spawnChild(roomName, i + 2);
+    let latencies = [];
+
+    for (let j = 0; j < updateCount; j++) {
+      childClient.send({ action: 'message' });
+      // wait until message has been sent
+      await new Promise((resolve, reject) => {
+        childClient.on('message', message => {
+          if (message.type === 'ack') resolve();
+        });
+      });
+      latencies.push(computeAverageLatency(roomName));
+    }
+    
+    // record the average latency
+    latencyList.push({
+      clientCount: Object.values(updates[roomName]).length,
+      delay: latencies.reduce((acc, curr) => acc + curr, 0) / latencies.length,
+    });
+
+    // reset the array for the next calculation
+    latencies = [];
+  }
+
+  stringify(latencyList, {
+    header: true,
+    columns: {
+      clientCount: 'clientCount',
+      delay: 'delay'
+    }
+  }, (err, out) => {
+    if (err) res.json({ ok: false, msg: "Failed to create csv"})
+
+    // write the output to a file
+    writeFileSync("single-room.csv", out);
+  })
+
+  res.json({ ok: true });
+})
+
+const randomIndex = length => Math.floor(Math.random() * length);
+
+// *Measure the latency -- Average latency across every room
+// Sum(Average latency across all clients in a room) [0 - N] / N
+
+// Create two rooms
+// Send updates from one client in each room
+// Measure and record the latency of the update
+//  Add a new clients to each room
+//  Measure the latency when sending updates across the clients in each room
+//  Add a new room with the same number of clients as every other room
+// Measure the latency across all the rooms again and record
+// *Keeps going till we've reached the target number of rooms and clients per room
+
+app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req, res) => {
+  resetRoomAndClients();
+
+  const roomCount = parseInt(req.params.roomCount ?? '10');
+  const clientCount = parseInt(req.params.clientCount ?? '10');
+  const updateCount = parseInt(req.params.updateCount ?? '10');
+
+  const [room1, room2] = new Array(2).fill(0).map(_ => crypto.randomUUID());
+  createRoom(room1, 2);
+  createRoom(room2, 2);
+
+  let currentRoomCount = 2;
+  let currentClientCount = 2;
+  let latencies = [];
+  const ackQueue = [];
+
+  const averageLatency = await loadTestClients();
+  latencies.push({ latency: averageLatency, roomCount: currentRoomCount, clientCount: currentClientCount });
+
+  setInterval(() => {
+    console.clear();
+    console.log("Current Room Count: ", currentRoomCount);
+    console.log("Current Client Count: ", currentClientCount);
+    console.log("Ack Queue Length: ", ackQueue.length);
+  }, 1000);
+
+  while (currentRoomCount != roomCount && currentClientCount != clientCount) {
+    // increase if it hasn't reached the desired count
+    currentClientCount += (currentClientCount < clientCount) ? 1 : 0;
+
+    // increase the number of clients in every room
+    const roomKeys = Object.keys(updates);
+    roomKeys.forEach(roomKey => increaseClientCountsTo(roomKey, currentClientCount));
+
+    latencies.push({ latency: await loadTestClients(), roomCount: currentRoomCount, clientCount: currentClientCount });
+
+    createRoom(crypto.randomUUID(), currentClientCount);
+    // increase if it hasn't reached the desired count
+    currentRoomCount += (currentRoomCount < roomCount) ? 1 : 0;
+
+    latencies.push({ latency: await loadTestClients(), roomCount: currentRoomCount, clientCount: currentClientCount });
+  }
+
+  function increaseClientCountsTo(roomName, count) {
+    const newClientsCount = count - Object.keys(updates[roomName]).length;
+    createRoom(roomName, newClientsCount);
+  }
+
+
+  async function loadTestClients() {
+    const latencies = [];
+    const roomKeys = Object.keys(updates);
+
+    for (let roomKey of roomKeys) {
+
+      const clients = updates[roomKey];
+      const clientValues = Object.values(clients) ;
+
+      const randomClient = clientValues[randomIndex(clientValues.length)];
+
+      const updatesLatency = [];
+      for (let i = 0; i < updateCount; i++) {
+        randomClient.child.send({ action: 'message' });
+        ackQueue.push(1);
+
+        // wait until we get acknowledgement from client that message was received 
+        await new Promise((resolve, reject) => {
+          randomClient.child.on("message", message => {
+            if (message.type === 'ack') { ackQueue.pop(); resolve(); } 
+          });
+        })
+
+        updatesLatency.push(computeAverageLatency(roomKey));
+      }
+      // push average latency across <updateCount> updates
+      let updatesAverageLatency = 
+        updatesLatency.reduce((acc, curr) => acc + curr, 0) / updatesLatency.length;
+      latencies.push(
+        // only add to list if length is > 0 
+        // dividing by 0 will give NaN and pollute the future values
+        updatesLatency.length > 0 ? updatesAverageLatency : 0
+      );
+    }
+
+    // compute average latency across every room
+    const averageLatency = latencies.reduce((acc, curr) => acc + curr, 0) / latencies.length;
+    return latencies.length > 0 ? averageLatency : 0;
+  }
+
+  stringify(latencies, {
+    header: true,
+    columns: {
+      clientCount: 'clientCount',
+      latency: 'latency',
+      roomCount: 'roomCount'
+    }
+  }, (err, out) => {
+    if (err) res.json({ ok: false, msg: "Failed to create csv" })
+
+    // write the output to a file
+    writeFileSync("multi-room.csv", out);
+  })
+
+  res.json({ ok: true });
+})
+
+process.on("SIGINT", () => {
+  // kill all processes across all rooms
+  Object.values(updates).map(roomChildren => {
+    Object.values(roomChildren).map(child => child.controller.abort());
+  });
+  process.exit(0);
+})
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log("Listening on port", PORT));
