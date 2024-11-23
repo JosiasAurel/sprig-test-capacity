@@ -351,11 +351,11 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
       const updatesLatency = [];
       for (let i = 0; i < updateCount; i++) {
         randomClient.child.send({ action: 'message' });
+        ackQueue.push(1);
 
         // wait until we get acknowledgement from client that message was received 
         await new Promise((resolve, reject) => {
           randomClient.child.on("message", message => {
-            ackQueue.push(1);
             if (message.type === 'ack') { ackQueue.pop(); resolve(); } 
           });
         })
