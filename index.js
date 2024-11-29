@@ -139,17 +139,17 @@ async function createRoom(roomName, clientCount, firebase = false) {
   // create the room if it doesn't exist yet
   if (!Object.hasOwn(updates, roomName)) {
     updates = { ...updates, [roomName]: {} };
+
+    // tell the saving server to start listening to this room 
+    if (firebase) {
+      const response = await fetch(`http://localhost:3002/${roomName}`);
+      const _ = await response.json();
+    }
   }
 
   // add clients to the room
   for (let i = 0; i < clientCount; i++) {
     spawnChild(roomName, Object.keys(updates[roomName]).length);
-  }
-
-  // tell the saving server to start listening to this room 
-  if (firebase) {
-    const response = await fetch(`http://localhost:3002/${roomName}`);
-    const _ = await response.json();
   }
 }
 
@@ -298,8 +298,8 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
   const updateCount = parseInt(req.params.updateCount ?? '10');
 
   const [room1, room2] = new Array(2).fill(0).map(_ => crypto.randomUUID());
-  await createRoom(room1, 2);
-  await createRoom(room2, 2);
+  await createRoom(room1, 2, true);
+  await createRoom(room2, 2, true);
 
   let currentRoomCount = 2;
   let currentClientCount = 2;
@@ -335,7 +335,7 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
 
   async function increaseClientCountsTo(roomName, count) {
     const newClientsCount = count - Object.keys(updates[roomName]).length;
-    await createRoom(roomName, newClientsCount);
+    await createRoom(roomName, newClientsCount, true);
   }
 
 
