@@ -142,7 +142,7 @@ async function createRoom(roomName, clientCount, firebase = false) {
 
     // tell the saving server to start listening to this room 
     if (firebase) {
-      const response = await fetch(`http://localhost:3002/${roomName}`);
+      const response = await fetch(`http://localhost:3002/add-room/${roomName}`);
       const _ = await response.json();
     }
   }
