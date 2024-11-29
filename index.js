@@ -95,10 +95,6 @@ function buildRoomWithClients(roomName = "oDWL6LS54Dt1rpFdftyW", NUM_CLIENTS) {
     return spawnChild(roomName, idx);
   });
 
-  // randomly choose client that will send message
-  // let randomClient = clients[Math.floor(Math.random() * clients.length)];
-  // randomClient.child_client.send({ action: "message" });
-
   return { id: roomName, clients };
 }
 
@@ -139,7 +135,7 @@ app.get("/", (req, res) => {
   res.send("Working...");
 })
 
-function createRoom(roomName, clientCount) {
+async function createRoom(roomName, clientCount, firebase = false) {
   // create the room if it doesn't exist yet
   if (!Object.hasOwn(updates, roomName)) {
     updates = { ...updates, [roomName]: {} };
@@ -148,6 +144,12 @@ function createRoom(roomName, clientCount) {
   // add clients to the room
   for (let i = 0; i < clientCount; i++) {
     spawnChild(roomName, Object.keys(updates[roomName]).length);
+  }
+
+  // tell the saving server to start listening to this room 
+  if (firebase) {
+    const response = await fetch(`http://localhost:3002/${roomName}`);
+    const _ = await response.json();
   }
 }
 
@@ -161,11 +163,11 @@ function resetRoomAndClients() {
 }
 
 // this can be used for both spinning up a room with clients or adding new clients to an existing room
-app.get("/create-room/:roomName/:clients", (req, res) => {
+app.get("/create-room/:roomName/:clients", async (req, res) => {
   const roomName = req.params.roomName;
   const clientCount = parseInt(req.params.clients ?? '0');
 
-  createRoom(roomName, clientCount);
+  await createRoom(roomName, clientCount);
   res.status(200).json({ ok: true });
 })
 
@@ -229,7 +231,7 @@ app.get("/self-test-room/:clientCount/:updateCount", async (req, res) => {
   const roomName = crypto.randomUUID();
 
   // create a new room with two clients
-  createRoom(roomName, 2);
+  await createRoom(roomName, 2);
 
   const latencyList = [];
   for (let i = 0; i < clientCount - 2; i++) {
@@ -296,8 +298,8 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
   const updateCount = parseInt(req.params.updateCount ?? '10');
 
   const [room1, room2] = new Array(2).fill(0).map(_ => crypto.randomUUID());
-  createRoom(room1, 2);
-  createRoom(room2, 2);
+  await createRoom(room1, 2);
+  await createRoom(room2, 2);
 
   let currentRoomCount = 2;
   let currentClientCount = 2;
@@ -324,16 +326,16 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
 
     latencies.push({ latency: await loadTestClients(), roomCount: currentRoomCount, clientCount: currentClientCount });
 
-    createRoom(crypto.randomUUID(), currentClientCount);
+    await createRoom(crypto.randomUUID(), currentClientCount);
     // increase if it hasn't reached the desired count
     currentRoomCount += (currentRoomCount < roomCount) ? 1 : 0;
 
     latencies.push({ latency: await loadTestClients(), roomCount: currentRoomCount, clientCount: currentClientCount });
   }
 
-  function increaseClientCountsTo(roomName, count) {
+  async function increaseClientCountsTo(roomName, count) {
     const newClientsCount = count - Object.keys(updates[roomName]).length;
-    createRoom(roomName, newClientsCount);
+    await createRoom(roomName, newClientsCount);
   }
 
 
@@ -350,7 +352,7 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
 
       const updatesLatency = [];
       for (let i = 0; i < updateCount; i++) {
-        randomClient.child.send({ action: 'message' });
+        randomClient.child.send({ action: 'message', details: JSON.stringify({ clientCount: currentClientCount, roomCount: currentRoomCount }) });
         ackQueue.push(1);
 
         // wait until we get acknowledgement from client that message was received 

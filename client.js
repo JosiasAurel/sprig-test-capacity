@@ -2,6 +2,8 @@ import { WebrtcProvider } from "./y-webrtc.js";
 import * as Y from "yjs";
 import express from "express";
 import crypto from "node:crypto";
+import admin from "firebase-admin";
+import { Timestamp, getFirestore } from "firebase-admin/firestore";
 
 const app = express();
 app.use(express.json());
@@ -13,9 +15,32 @@ const roomName = process.argv[3];
 
 const buildLogger = id => thing => console.log(id, thing);
 
+let firebaseApp = null;
+if (admin.apps.length === 0) {
+  firebaseApp = admin.initializeApp({
+    credential: admin.credential.cert(
+      JSON.parse(
+        Buffer.from(process.env.FIREBASE_CREDENTIAL, "base64").toString()
+      )
+    ),
+  });
+} else {
+  firebaseApp = admin.apps[0];
+}
+
+const firestore = getFirestore(firebaseApp);
+
+try {
+  firestore.settings({ preferRest: true });
+} catch (e) {
+  console.log(e);
+}
+
 
 // @param updates {Array<number>} - used to indicate the number of updates each client has received since the start of the program
-function createClient(id = 0, roomName) {
+async function createClient(id = 0, roomName) {
+    const docWriteResult = await firestore.collection("rooms").doc(roomName).set({ content: "initial" });
+
     const log = buildLogger(id);
 
     const ydoc = new Y.Doc();
@@ -39,7 +64,8 @@ function createClient(id = 0, roomName) {
     // send updates at random indices every 2.5 seconds
     process.on("message", message => {
         if (message.action === "message") {
-            ydoc.getText("codemirror").insert(Math.floor(Math.random(), 10), "this change came from the headless client");
+            // const details = JSON.parse(message.details);
+            ydoc.getText("codemirror").insert(0, message.details);
             process.send({ type: 'ack' });
         }
     });
