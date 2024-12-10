@@ -12,6 +12,25 @@ import { stringify } from "csv";
 import { writeFileSync } from "node:fs";
 config();
 
+let firebaseApp = null;
+if (admin.apps.length === 0) {
+  firebaseApp = admin.initializeApp({
+    credential: admin.credential.cert(
+      JSON.parse(
+        Buffer.from(process.env.FIREBASE_CREDENTIAL, "base64").toString()
+      )
+    ),
+  });
+} else {
+  firebaseApp = admin.apps[0];
+}
+
+const firestore = getFirestore(firebaseApp);
+try {
+  firestore.settings({ preferRest: true });
+} catch (e) {
+  console.log(e);
+}
 const CHILD_PROCESS_MAX_LISTENERS = 100;
 const app = express();
 app.use(express.json());
@@ -36,6 +55,7 @@ function spawnChild(parentRoom, idx) {
 
   console.log("spawned child", childClient.pid, parentRoom);
 
+  // listen and handle messages from the child process
   childClient.on("message", message => {
       console.log(childClient.pid, "Sending update to index", idx);
       if (message.type !== 'update') return;
@@ -53,45 +73,17 @@ function spawnChild(parentRoom, idx) {
     controller.abort();
   })
 
+  // kill the child client if the process receives a termination signal
+  process.on("SIGINT", () => {
+    controller.abort();
+  });
+
   return { controller, childClient };
 }
 
 function buildRoomWithClients(roomName = "oDWL6LS54Dt1rpFdftyW", NUM_CLIENTS) {
 
   const clients = new Array(NUM_CLIENTS).fill(0).map(function (_, idx) {
-    // const controller = new AbortController();
-    // const { signal } = controller;
-    // const child_client = fork("./client.js", [idx, roomName, portNumber], { signal })
-
-    // portNumber += 1;
-    // updates[roomName] = {
-    //   ...updates[roomName],
-    //   [child_client.pid]: { lastTime: 0, delay: 0, count: 0 }
-    // }
-    // // updates[roomName][child_client.pid] = { lastTime: 0, delay: 0, count: 0 };
-
-    // console.log("spawned child", child_client.pid, roomName);
-    // child_client.on("message", message => {
-      
-    //   console.log(child_client.pid, "Sending update to index", idx);
-    //   updates[roomName][child_client.pid] = {
-    //     lastTime: message.now,
-    //     delay: message.now - updates[roomName][child_client.pid].lastTime,
-    //     count: updates[roomName][child_client.pid].count + 1,
-    //     pid: child_client.pid,
-    //     roomName: message.roomName,
-    //     childId: message.id,
-    //     dead: false
-    //   }
-    // });
-
-    // child_client.on("error", (error) => {
-
-    //   updates[roomName][child_client.pid] = { ...updates[roomName][child_client.pid], dead: true };
-    //   controller.abort(); // terminate the process on error
-    // });
-
-    // return { controller, child_client };
     return spawnChild(roomName, idx);
   });
 
@@ -136,18 +128,30 @@ app.get("/", (req, res) => {
 })
 
 async function createRoom(roomName, clientCount, firebase = false) {
+  console.log("About to create a room");
   // create the room if it doesn't exist yet
   if (!Object.hasOwn(updates, roomName)) {
     updates = { ...updates, [roomName]: {} };
 
     // tell the saving server to start listening to this room 
     if (firebase) {
+      // create the document in firebase if it doesn't exist yet
+      const firestoreRoom = await firestore.collection("rooms").doc(roomName);
+
+      // if the firestore document doesn't exist, set a new value for it
+      if (!(await firestoreRoom.get()).exists) {
+        console.log("creating room in firebase");
+        await firestoreRoom.set({ content: "initial" });
+      }
+
+      // tell the saving server to begin listening to the room
+      console.log("about to send request to saving server");
       const response = await fetch(`http://localhost:3002/add-room/${roomName}`);
       const _ = await response.json();
     }
   }
 
-  // add clients to the room
+  // add `clientCount` clients to the room
   for (let i = 0; i < clientCount; i++) {
     spawnChild(roomName, Object.keys(updates[roomName]).length);
   }
@@ -295,7 +299,7 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
 
   const roomCount = parseInt(req.params.roomCount ?? '10');
   const clientCount = parseInt(req.params.clientCount ?? '10');
-  const updateCount = parseInt(req.params.updateCount ?? '10');
+  const updateCount = parseInt(req.params.updateCount ?? '5');
 
   const [room1, room2] = new Array(2).fill(0).map(_ => crypto.randomUUID());
   await createRoom(room1, 2, true);
@@ -309,6 +313,7 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
   const averageLatency = await loadTestClients();
   latencies.push({ latency: averageLatency, roomCount: currentRoomCount, clientCount: currentClientCount });
 
+  // log stats every second
   setInterval(() => {
     console.clear();
     console.log("Current Room Count: ", currentRoomCount);
@@ -316,6 +321,8 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
     console.log("Ack Queue Length: ", ackQueue.length);
   }, 1000);
 
+  // while we haven't reached the target number of rooms and clients per room
+  // keep adding more rooms and computing the latency
   while (currentRoomCount != roomCount && currentClientCount != clientCount) {
     // increase if it hasn't reached the desired count
     currentClientCount += (currentClientCount < clientCount) ? 1 : 0;
@@ -326,7 +333,7 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
 
     latencies.push({ latency: await loadTestClients(), roomCount: currentRoomCount, clientCount: currentClientCount });
 
-    await createRoom(crypto.randomUUID(), currentClientCount);
+    await createRoom(crypto.randomUUID(), currentClientCount, true);
     // increase if it hasn't reached the desired count
     currentRoomCount += (currentRoomCount < roomCount) ? 1 : 0;
 
@@ -335,7 +342,7 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
 
   async function increaseClientCountsTo(roomName, count) {
     const newClientsCount = count - Object.keys(updates[roomName]).length;
-    await createRoom(roomName, newClientsCount, true);
+    await createRoom(roomName, newClientsCount);
   }
 
 
@@ -393,6 +400,8 @@ app.get("/self-test-multiroom/:roomCount/:clientCount/:updateCount", async (req,
     writeFileSync("multi-room.csv", out);
   })
 
+  // tell the saving server we're done on our side
+  await fetch("http://localhost:3002/done");
   res.json({ ok: true });
 })
 

@@ -51,8 +51,8 @@ async function createClient(id = 0, roomName) {
     });
 
     ydoc.on("update", update => {
-        const updateText = ydoc.getText("codemirror");
-        Y.applyUpdate(ydoc, update);
+        // const updateText = ydoc.getText("codemirror");
+        // Y.applyUpdate(ydoc, update);
 
         const now = new Date().getTime();
 
@@ -65,22 +65,20 @@ async function createClient(id = 0, roomName) {
     process.on("message", message => {
         if (message.action === "message") {
             // const details = JSON.parse(message.details);
-            ydoc.getText("codemirror").insert(0, message.details);
+            // const ytext = ydoc.getText("codemirror");
+            const ymap = ydoc.getMap("codemirror");
+
+            // clear the contents of the document so we're sending valid json
+            // ytext.delete(0, ytext.length);
+            // ytext.delete(0, 1e10); // when the computer refuses to do what you want you gotta be evil -@Josias
+
+            // insert our new message
+            // ytext.insert(0, message.details);
+            ymap.set("code", message.details);
+
             process.send({ type: 'ack' });
         }
     });
-
-    // if (Math.random() > 0.5) {
-    //     const timeoutHandle = setTimeout(() => {
-    //         ydoc.getText("codemirror").insert(Math.floor(Math.random(), 10), "this change came from the headless client");
-    //         clearTimeout(timeoutHandle);
-    //     }, Math.floor(Math.random() * 3000));
-    // }
-
-    // setInterval(() => {
-    //     ydoc.getText("codemirror").insert(Math.floor(Math.random(), 10), "this change came from the headless client");
-    // }, 2500);
-
 }
 
 console.log("Spawning child process", clientID, roomName);
