@@ -369,6 +369,8 @@ app.get(
             currentRoomCount != roomCount &&
             currentClientCount != clientCount
         ) {
+            // to give firebase some slack
+            setTimeout(() => {}, 1000);
             // increase if it hasn't reached the desired count
             currentClientCount += currentClientCount < clientCount ? 1 : 0;
 

@@ -43,7 +43,7 @@ try {
 
 // @param updates {Array<number>} - used to indicate the number of updates each client has received since the start of the program
 async function createClient(id = 0, roomName) {
-    const docWriteResult = await firestore
+    await firestore
         .collection("rooms")
         .doc(roomName)
         .set({ content: "initial" });
